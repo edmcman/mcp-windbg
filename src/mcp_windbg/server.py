@@ -66,6 +66,7 @@ class OpenWindbgRemote(BaseModel):
     include_stack_trace: bool = Field(default=False, description="Whether to include stack traces in the analysis")
     include_modules: bool = Field(default=False, description="Whether to include loaded module information")
     include_threads: bool = Field(default=False, description="Whether to include thread information")
+    attach_cmdline: Optional[str] = Field(default=None, description="Optional command-line to run on the remote target (implies -premote)")
 
 
 class RunWindbgCmdParams(BaseModel):
@@ -109,6 +110,7 @@ class ListWindbgDumpsParams(BaseModel):
 def get_or_create_session(
     dump_path: Optional[str] = None,
     connection_string: Optional[str] = None,
+    attach_cmdline: Optional[str] = None,
     cdb_path: Optional[str] = None,
     symbols_path: Optional[str] = None,
     timeout: int = 30,
@@ -131,6 +133,7 @@ def get_or_create_session(
             session = CDBSession(
                 dump_path=dump_path,
                 remote_connection=connection_string,
+                attach_cmdline=attach_cmdline,
                 cdb_path=cdb_path,
                 symbols_path=symbols_path,
                 timeout=timeout,
@@ -408,7 +411,7 @@ def _create_server(
             elif name == "open_windbg_remote":
                 args = OpenWindbgRemote(**arguments)
                 session = get_or_create_session(
-                    connection_string=args.connection_string, cdb_path=cdb_path, symbols_path=symbols_path, timeout=timeout, verbose=verbose
+                    connection_string=args.connection_string, attach_cmdline=args.attach_cmdline, cdb_path=cdb_path, symbols_path=symbols_path, timeout=timeout, verbose=verbose
                 )
 
                 results = []

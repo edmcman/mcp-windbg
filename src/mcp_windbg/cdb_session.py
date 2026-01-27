@@ -40,6 +40,7 @@ class CDBSession:
         initial_commands: Optional[List[str]] = None,
         timeout: int = 10,
         verbose: bool = False,
+        attach_cmdline: Optional[str] = None,
         additional_args: Optional[List[str]] = None
     ):
         """
@@ -53,6 +54,7 @@ class CDBSession:
             initial_commands: List of commands to run when CDB starts
             timeout: Timeout in seconds for waiting for CDB responses
             verbose: Whether to print additional debug information
+            attach_cmdline: Optional command-line to run on the remote target (implies -premote)
             additional_args: Additional arguments to pass to cdb.exe
 
         Raises:
@@ -73,6 +75,7 @@ class CDBSession:
         self.remote_connection = remote_connection
         self.timeout = timeout
         self.verbose = verbose
+        self.attach_cmdline = attach_cmdline
 
         # Find cdb executable
         self.cdb_path = self._find_cdb_executable(cdb_path)
@@ -86,7 +89,11 @@ class CDBSession:
         if self.dump_path:
             cmd_args.extend(["-z", self.dump_path])
         elif self.remote_connection:
-            cmd_args.extend(["-remote", self.remote_connection])
+            # If an attach command-line is provided, use -premote and add -a '<cmdline>'
+            if self.attach_cmdline:
+                cmd_args.extend(["-premote", self.remote_connection, "-a", self.attach_cmdline])
+            else:
+                cmd_args.extend(["-remote", self.remote_connection])
 
         # Add symbols path if provided
         if symbols_path:
