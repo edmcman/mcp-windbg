@@ -111,7 +111,8 @@ class CDBSession:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                bufsize=1
+                bufsize=1,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
             )
         except Exception as e:
             raise CDBError(f"Failed to start CDB process: {str(e)}")
