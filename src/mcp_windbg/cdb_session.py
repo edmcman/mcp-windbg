@@ -116,6 +116,9 @@ class CDBSession:
             raise CDBError(f"Failed to start CDB process: {str(e)}")
 
         self.output_lines = []
+        self.current_output_lines = []
+        self.last_output_lines = []
+        self.is_executing = False
         self.lock = threading.Lock()
         self.ready_event = threading.Event()
         self.reader_thread = threading.Thread(target=self._read_output)
@@ -150,7 +153,6 @@ class CDBSession:
         if not self.process or not self.process.stdout:
             return
 
-        buffer = []
         try:
             for line in self.process.stdout:
                 line = line.rstrip()
@@ -158,14 +160,14 @@ class CDBSession:
                     print(f"CDB > {line}")
 
                 with self.lock:
-                    buffer.append(line)
+                    self.current_output_lines.append(line)
                     # Check if the marker is in this line
                     if COMMAND_MARKER_PATTERN.search(line):
                         # Remove the marker line itself
-                        if buffer and COMMAND_MARKER_PATTERN.search(buffer[-1]):
-                            buffer.pop()
-                        self.output_lines = buffer
-                        buffer = []
+                        if self.current_output_lines and COMMAND_MARKER_PATTERN.search(self.current_output_lines[-1]):
+                            self.current_output_lines.pop()
+                        self.output_lines = self.current_output_lines
+                        self.current_output_lines = []
                         self.ready_event.set()
         except (IOError, ValueError) as e:
             if self.verbose:
@@ -195,30 +197,62 @@ class CDBSession:
             List of output lines from CDB
 
         Raises:
-            CDBError: If the command times out or CDB is not responsive
+            CDBError: If CDB is not responsive or a command is already executing
         """
         if not self.process:
             raise CDBError("CDB process is not running")
 
         self.ready_event.clear()
         with self.lock:
+            if self.is_executing:
+                raise CDBError("A command is already executing")
+            self.is_executing = True
             self.output_lines = []
+            self.current_output_lines = []
 
         try:
             # Send the command followed by our marker to detect completion
             self.process.stdin.write(f"{command}\n{COMMAND_MARKER}\n")
             self.process.stdin.flush()
+
+            cmd_timeout = timeout or self.timeout
+            if not self.ready_event.wait(timeout=cmd_timeout):
+                with self.lock:
+                    result = self.current_output_lines.copy()
+                    self.current_output_lines = []
+                    self.last_output_lines = result.copy()
+                result.append(f"[Command timed out after {cmd_timeout} seconds]")
+                return result
+
+            with self.lock:
+                result = self.output_lines.copy()
+                self.output_lines = []
+                self.last_output_lines = result.copy()
+            return result
         except IOError as e:
             raise CDBError(f"Failed to send command: {str(e)}")
+        finally:
+            with self.lock:
+                self.is_executing = False
 
-        cmd_timeout = timeout or self.timeout
-        if not self.ready_event.wait(timeout=cmd_timeout):
-            raise CDBError(f"Command timed out after {cmd_timeout} seconds: {command}")
+    def interrupt_command(self) -> tuple[str, List[str]]:
+        """Send an interrupt signal to the CDB process."""
+        if not self.process or not self.process.stdin:
+            raise CDBError("CDB process is not running")
 
         with self.lock:
-            result = self.output_lines.copy()
-            self.output_lines = []
-        return result
+            if not self.is_executing:
+                output = self.last_output_lines.copy()
+                if output:
+                    return "finished", output
+                raise CDBError("No command is currently executing")
+
+        try:
+            self.process.stdin.write("\x03")  # CTRL+C
+            self.process.stdin.flush()
+            return "interrupted", []
+        except IOError as e:
+            raise CDBError(f"Failed to send interrupt: {str(e)}")
 
     def shutdown(self):
         """Clean up and terminate the CDB process"""

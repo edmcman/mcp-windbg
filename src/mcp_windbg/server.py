@@ -85,6 +85,21 @@ class RunWindbgCmdParams(BaseModel):
         return self
 
 
+class InterruptWindbgCmdParams(BaseModel):
+    """Parameters for interrupting a WinDbg command."""
+    dump_path: Optional[str] = Field(default=None, description="Path to the Windows crash dump file")
+    connection_string: Optional[str] = Field(default=None, description="Remote connection string (e.g., 'tcp:Port=5005,Server=192.168.0.100')")
+
+    @model_validator(mode='after')
+    def validate_connection_params(self):
+        """Validate that exactly one of dump_path or connection_string is provided."""
+        if not self.dump_path and not self.connection_string:
+            raise ValueError("Either dump_path or connection_string must be provided")
+        if self.dump_path and self.connection_string:
+            raise ValueError("dump_path and connection_string are mutually exclusive")
+        return self
+
+
 class CloseWindbgDumpParams(BaseModel):
     """Parameters for unloading a crash dump."""
     dump_path: str = Field(description="Path to the Windows crash dump file to unload")
@@ -319,6 +334,14 @@ def _create_server(
                 inputSchema=RunWindbgCmdParams.model_json_schema(),
             ),
             Tool(
+                name="interrupt_windbg_cmd",
+                description="""
+                Interrupt the current WinDbg command on a loaded crash dump or remote session.
+                This tool sends a Ctrl+C interrupt to the active CDB session.
+                """,
+                inputSchema=InterruptWindbgCmdParams.model_json_schema(),
+            ),
+            Tool(
                 name="close_windbg_dump",
                 description="""
                 Unload a crash dump and release resources.
@@ -453,6 +476,25 @@ def _create_server(
                 return [TextContent(
                     type="text",
                     text=f"Command: {args.command}\n\nOutput:\n```\n" + "\n".join(output) + "\n```"
+                )]
+
+            elif name == "interrupt_windbg_cmd":
+                args = InterruptWindbgCmdParams(**arguments)
+                session = get_or_create_session(
+                    dump_path=args.dump_path, connection_string=args.connection_string,
+                    cdb_path=cdb_path, symbols_path=symbols_path, timeout=timeout, verbose=verbose
+                )
+                status, output = session.interrupt_command()
+
+                if status == "finished":
+                    return [TextContent(
+                        type="text",
+                        text="Command already finished. Last output:\n```\n" + "\n".join(output) + "\n```"
+                    )]
+
+                return [TextContent(
+                    type="text",
+                    text="Interrupt signal sent."
                 )]
 
             elif name == "close_windbg_dump":
