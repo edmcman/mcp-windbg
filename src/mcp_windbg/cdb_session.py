@@ -186,16 +186,17 @@ class CDBSession:
         except IOError as e:
             raise CDBError(f"Failed to communicate with CDB: {str(e)}")
 
-    def send_command(self, command: str, timeout: Optional[int] = None) -> List[str]:
+    def send_command(self, command: str, timeout: Optional[int] = None, wait: bool = True) -> List[str]:
         """
-        Send a command to CDB and return the output
+        Send a command to CDB and optionally wait for the output
 
         Args:
             command: The command to send
             timeout: Custom timeout for this command (overrides instance timeout)
+            wait: Whether to wait for command completion and return output (default True)
 
         Returns:
-            List of output lines from CDB
+            List of output lines from CDB if wait=True, otherwise empty list
 
         Raises:
             CDBError: If CDB is not responsive or a command is already executing
@@ -206,7 +207,7 @@ class CDBSession:
         self.ready_event.clear()
         with self.lock:
             if self.is_executing.is_set():
-                raise CDBError("A command is already executing")
+                raise CDBError("A command is already executing. Use the interrupt tool to stop command execution.")
             self.is_executing.set()
             self.output_lines = []
             self.current_output_lines = []
@@ -215,6 +216,9 @@ class CDBSession:
             # Send the command followed by our marker to detect completion
             self.process.stdin.write(f"{command}\n{COMMAND_MARKER}\n")
             self.process.stdin.flush()
+
+            if not wait:
+                return []
 
             cmd_timeout = timeout or self.timeout
             if not self.ready_event.wait(timeout=cmd_timeout):
@@ -246,12 +250,17 @@ class CDBSession:
                 output = self.last_output_lines.copy()
                 if output:
                     return "finished", output
-                raise CDBError("No command is currently executing")
+                raise CDBError("No command is currently executing.")
 
         try:
             self.process.stdin.write("\x03")  # CTRL+C
             self.process.stdin.flush()
-            return "interrupted", []
+            with self.lock:
+                output = self.current_output_lines.copy()
+                self.current_output_lines = []
+                self.is_executing.clear()
+                self.ready_event.set()
+            return "interrupted", output
         except IOError as e:
             raise CDBError(f"Failed to send interrupt: {str(e)}")
 

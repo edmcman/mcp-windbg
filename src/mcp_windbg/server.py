@@ -74,6 +74,7 @@ class RunWindbgCmdParams(BaseModel):
     dump_path: Optional[str] = Field(default=None, description="Path to the Windows crash dump file")
     connection_string: Optional[str] = Field(default=None, description="Remote connection string (e.g., 'tcp:Port=5005,Server=192.168.0.100')")
     command: str = Field(description="WinDbg command to execute")
+    wait: bool = Field(default=True, description="Whether to wait for command completion and return output")
 
     @model_validator(mode='after')
     def validate_connection_params(self):
@@ -471,12 +472,18 @@ def _create_server(
                     dump_path=args.dump_path, connection_string=args.connection_string,
                     cdb_path=cdb_path, symbols_path=symbols_path, timeout=timeout, verbose=verbose
                 )
-                output = session.send_command(args.command)
+                output = session.send_command(args.command, wait=args.wait)
 
-                return [TextContent(
-                    type="text",
-                    text=f"Command: {args.command}\n\nOutput:\n```\n" + "\n".join(output) + "\n```"
-                )]
+                if args.wait:
+                    return [TextContent(
+                        type="text",
+                        text=f"Command: {args.command}\n\nOutput:\n```\n" + "\n".join(output) + "\n```"
+                    )]
+                else:
+                    return [TextContent(
+                        type="text",
+                        text=f"Command sent: {args.command}"
+                    )]
 
             elif name == "interrupt_windbg_cmd":
                 args = InterruptWindbgCmdParams(**arguments)
@@ -494,7 +501,7 @@ def _create_server(
 
                 return [TextContent(
                     type="text",
-                    text="Interrupt signal sent."
+                    text="Interrupt signal sent. Partial output:\n```\n" + ("\n".join(output) if output else "(no output yet)") + "\n```"
                 )]
 
             elif name == "close_windbg_dump":
