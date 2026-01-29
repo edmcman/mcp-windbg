@@ -259,6 +259,7 @@ class CDBSession:
             with self.lock:
                 output = self.current_output_lines.copy()
                 self.current_output_lines = []
+                self.last_output_lines = []
                 self.is_executing.clear()
                 self.ready_event.set()
             return "interrupted", output
