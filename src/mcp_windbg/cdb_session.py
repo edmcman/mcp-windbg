@@ -1,4 +1,5 @@
 import subprocess
+import signal
 import threading
 import re
 import os
@@ -253,15 +254,15 @@ class CDBSession:
                 raise CDBError("No command is currently executing.")
 
         try:
-            self.process.stdin.write("\x03")  # CTRL+C
-            self.process.stdin.flush()
+            os.kill(self.process.pid, signal.CTRL_C_EVENT)
+
             with self.lock:
                 output = self.current_output_lines.copy()
                 self.current_output_lines = []
                 self.is_executing.clear()
                 self.ready_event.set()
             return "interrupted", output
-        except IOError as e:
+        except Exception as e:
             raise CDBError(f"Failed to send interrupt: {str(e)}")
 
     def shutdown(self):
