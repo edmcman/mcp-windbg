@@ -254,7 +254,7 @@ class CDBSession:
                 raise CDBError("No command is currently executing.")
 
         try:
-            os.kill(self.process.pid, signal.CTRL_C_EVENT)
+            os.kill(self.process.pid, signal.CTRL_BREAK_EVENT)
 
             with self.lock:
                 output = self.current_output_lines.copy()
