@@ -118,9 +118,9 @@ class CDBSession:
         self.output_lines = []
         self.current_output_lines = []
         self.last_output_lines = []
-        self.is_executing = False
         self.lock = threading.Lock()
         self.ready_event = threading.Event()
+        self.is_executing = threading.Event()
         self.reader_thread = threading.Thread(target=self._read_output)
         self.reader_thread.daemon = True
         self.reader_thread.start()
@@ -169,6 +169,7 @@ class CDBSession:
                         self.output_lines = self.current_output_lines
                         self.current_output_lines = []
                         self.ready_event.set()
+                        self.is_executing.clear()
         except (IOError, ValueError) as e:
             if self.verbose:
                 print(f"CDB output reader error: {e}")
@@ -204,9 +205,9 @@ class CDBSession:
 
         self.ready_event.clear()
         with self.lock:
-            if self.is_executing:
+            if self.is_executing.is_set():
                 raise CDBError("A command is already executing")
-            self.is_executing = True
+            self.is_executing.set()
             self.output_lines = []
             self.current_output_lines = []
 
@@ -224,16 +225,16 @@ class CDBSession:
                 result.append(f"[Command timed out after {cmd_timeout} seconds]")
                 return result
 
+            # Success
             with self.lock:
                 result = self.output_lines.copy()
                 self.output_lines = []
                 self.last_output_lines = result.copy()
+                self.is_executing.clear()
+
             return result
         except IOError as e:
             raise CDBError(f"Failed to send command: {str(e)}")
-        finally:
-            with self.lock:
-                self.is_executing = False
 
     def interrupt_command(self) -> tuple[str, List[str]]:
         """Send an interrupt signal to the CDB process."""
@@ -241,7 +242,7 @@ class CDBSession:
             raise CDBError("CDB process is not running")
 
         with self.lock:
-            if not self.is_executing:
+            if not self.is_executing.is_set():
                 output = self.last_output_lines.copy()
                 if output:
                     return "finished", output
